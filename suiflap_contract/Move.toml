@@ -1,0 +1,15 @@
+[package]
+name = "suiflap_contract"
+version = "0.0.1"
+edition = "2024.beta"
+
+[dependencies]
+Sui = { git = "https://github.com/MystenLabs/sui.git", subdir = "crates/sui-framework/packages/sui-framework", rev = "framework/testnet" }
+
+[addresses]
+sui_flap = "0x0"
+game_vault="0x3d51e8c60c7944d84acd0cb5c639f823eebc2cceb6d62adfdc8d794b03ab2f92"
+admin_cap="0x5bada8cf061884904395df121c1baedbd67555539d704dfc022e8d493e99eb6e"
+suiflap_contract="0x7b8b5969e052b0494c16e029ba2513bfa3ade5be3576f6c2e36e55cc793dba51"
+suiflap_contract_treasury_cap="0x9c3da038713224048fd2440683b6c7c4d5ca400ab6eedbd1422bc9d52c79b55c"
+sui="0xd82a05902f3e50216c147b6d801a7fd9edb900b019db74edac4d65dd5a3f6e87"
