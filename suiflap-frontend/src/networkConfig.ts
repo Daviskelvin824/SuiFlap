@@ -7,7 +7,7 @@ const { networkConfig, useNetworkVariable, useNetworkVariables } =
       url: getFullnodeUrl("devnet"),
       variables: {
         // TODO: Update with your deployed contract address
-        simpleArtNFT: "0x0",
+        suiflapGame: "0x0",
         collectionId: "0x0",
       },
     },
@@ -15,18 +15,18 @@ const { networkConfig, useNetworkVariable, useNetworkVariables } =
       url: getFullnodeUrl("testnet"),
       variables: {
         // replacce with your deployed contract address
-        simpleArtNFT:
-          "0x2f29e18b0894ca8bdad6cb069751d647590e221baf3a630a6760be7b4f6c697c",
+        suiflapGame:
+          "0xf40d5d7c9c3a928641cba364f599a7abb4cd3643048893ffc1ceab5bf13d12b1",
         // replacce with your collection id
         collectionId:
-          "0x6d22771bec18c7f73c1ace52867bb259fef00d00a413f31c45e3f4c1b4148e5c",
+          "",
       },
     },
     mainnet: {
       url: getFullnodeUrl("mainnet"),
       variables: {
         // TODO: Update with your deployed contract address
-        simpleArtNFT: "0x0",
+        suiflapGame: "0x0",
         collectionId: "0x0",
       },
     },

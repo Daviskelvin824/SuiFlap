@@ -2,16 +2,25 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { ConnectButton, useCurrentAccount, useSignAndExecuteTransaction, useSuiClient } from '@mysten/dapp-kit';
 import { Transaction } from '@mysten/sui/transactions';
 import { Volume2, VolumeX } from 'lucide-react';
+import { useUserBalance } from '../hooks/use-get-user-info';
+import { useUserScore } from '../hooks/useUserScore';
+import { useRewardPlayer } from '../hooks/useRewardPlayer';
 
-// Game constants
-const GAME_WIDTH = 800;
-const GAME_HEIGHT = 600;
-const BIRD_SIZE = 40;
-const PIPE_WIDTH = 80;
-const PIPE_GAP = 200;
-const GRAVITY = 0.6;
-const JUMP_FORCE = -12;
-const PIPE_SPEED = 3;
+// Game constants (made responsive)
+const getGameDimensions = () => {
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+  return {
+    GAME_WIDTH: Math.min(vw, 800), // Cap at 800px for larger screens
+    GAME_HEIGHT: Math.min(vh, 600), // Cap at 600px for larger screens
+    BIRD_SIZE: Math.min(vw * 0.05, 40), // 5% of viewport width, capped at 40px
+    PIPE_WIDTH: Math.min(vw * 0.1, 80), // 10% of viewport width, capped at 80px
+    PIPE_GAP: Math.min(vh * 0.3, 300), // 30% of viewport height, capped at 200px
+    GRAVITY: 0.6 * (Math.min(vw, vh) / 600), // Scale gravity based on smaller dimension
+    JUMP_FORCE: -12 * (Math.min(vw, vh) / 600), // Scale jump force
+    PIPE_SPEED: 2 * (vw / 800), // Scale pipe speed based on width
+  };
+};
 
 // Character options
 const CHARACTERS = [
@@ -30,15 +39,18 @@ const SuiFlapGame = () => {
   // Game state
   const [gameState, setGameState] = useState('menu'); // menu, playing, gameOver
   const [selectedCharacter, setSelectedCharacter] = useState(CHARACTERS[0]);
-  const [score, setScore] = useState(0);
+  const [scores, setScore] = useState(0);
   const [highScore, setHighScore] = useState(0);
   const [tokensEarned, setTokensEarned] = useState(0);
   const [isSoundEnabled, setIsSoundEnabled] = useState(true);
+  const {balance, loading} = useUserBalance();
+  const {score} = useUserScore();
+  const { mutateAsync: rewardPlayer, isPending } = useRewardPlayer();
   
   // Bird state
   const [bird, setBird] = useState({
-    x: 100,
-    y: GAME_HEIGHT / 2,
+    x: window.innerWidth * 0.125, // 12.5% of viewport width
+    y: window.innerHeight / 2,
     velocity: 0
   });
   
@@ -65,17 +77,14 @@ const SuiFlapGame = () => {
     jumpSfxRef.current = new Audio('/jump_sfx.mp3');
     failSfxRef.current = new Audio('/fail_sfx.mp3');
     
-    // Set theme song to loop
     themeSongRef.current.loop = true;
     themeSongRef.current.volume = 0.5;
     
-    // Set volumes for SFX
     coinSfxRef.current.volume = 0.7;
     jumpSfxRef.current.volume = 0.5;
     failSfxRef.current.volume = 0.8;
     
     return () => {
-      // Cleanup audio when component unmounts
       if (themeSongRef.current) {
         themeSongRef.current.pause();
         themeSongRef.current = null;
@@ -86,8 +95,7 @@ const SuiFlapGame = () => {
     };
   }, []);
   
-  // Play theme song on menu
-  // ✅ Mobile height fix
+  // Mobile height fix
   useEffect(() => {
     const setVh = () => {
       const vh = window.innerHeight * 0.01;
@@ -97,6 +105,8 @@ const SuiFlapGame = () => {
     window.addEventListener('resize', setVh);
     return () => window.removeEventListener('resize', setVh);
   }, []);
+  
+  // Play theme song on menu
   useEffect(() => {
     if (gameState === 'menu' && themeSongRef.current && isSoundEnabled) {
       themeSongRef.current.play().catch(e => console.log('Audio play failed:', e));
@@ -121,27 +131,26 @@ const SuiFlapGame = () => {
   // Play sound effect helper
   const playSound = (audioRef) => {
     if (audioRef.current && isSoundEnabled) {
-      audioRef.current.currentTime = 0; // Reset to start
+      audioRef.current.currentTime = 0;
       audioRef.current.play().catch(e => console.log('Audio play failed:', e));
     }
   };
   
-  
   // Initialize menu pipes
   const initMenuPipes = () => {
+    const { PIPE_WIDTH, PIPE_GAP } = getGameDimensions();
     const initialPipes = [];
     const screenHeight = window.innerHeight;
     const groundHeight = 64;
     const availableHeight = screenHeight - groundHeight;
     
     for (let i = 0; i < 5; i++) {
-      // Calculate pipe heights properly
       const minTopHeight = 100;
       const maxTopHeight = availableHeight - PIPE_GAP - 100;
       const topHeight = Math.random() * (maxTopHeight - minTopHeight) + minTopHeight;
       
       initialPipes.push({
-        x: (i * 300) - 100, // Start some pipes off-screen to the left
+        x: (i * window.innerWidth * 0.375) - 100, // Scale spacing (37.5% of viewport width)
         topHeight: topHeight,
         bottomY: topHeight + PIPE_GAP,
         scored: false
@@ -157,29 +166,29 @@ const SuiFlapGame = () => {
       if (menuAnimationRef.current) {
         clearInterval(menuAnimationRef.current);
       }
-      setMenuPipes([]); // Clear menu pipes when not in menu
+      setMenuPipes([]);
       return;
     }
     
-    // Initialize menu pipes if empty
     if (menuPipes.length === 0) {
       initMenuPipes();
-      return; // Wait for next render cycle
+      return;
     }
+    
+    const { PIPE_SPEED, PIPE_WIDTH, PIPE_GAP } = getGameDimensions();
     
     const menuLoop = () => {
       setMenuPipes(prev => {
         let newPipes = prev.map(pipe => ({
           ...pipe,
           x: pipe.x - PIPE_SPEED
-        })).filter(pipe => pipe.x > -PIPE_WIDTH - 50); // Keep pipes a bit longer for smooth transition
+        })).filter(pipe => pipe.x > -PIPE_WIDTH - 50);
         
-        // Spawn new pipe when the rightmost pipe is far enough left
         const rightmostPipe = newPipes.reduce((max, pipe) => 
           pipe.x > max ? pipe.x : max, -1000
         );
         
-        if (rightmostPipe < window.innerWidth - 200) {
+        if (rightmostPipe < window.innerWidth - window.innerWidth * 0.25) {
           const screenHeight = window.innerHeight;
           const groundHeight = 64;
           const availableHeight = screenHeight - groundHeight;
@@ -199,7 +208,7 @@ const SuiFlapGame = () => {
       });
     };
     // @ts-ignore
-    menuAnimationRef.current = setInterval(menuLoop, 1000/60); // 60 FPS
+    menuAnimationRef.current = setInterval(menuLoop, 1000/60);
     
     return () => {
       if (menuAnimationRef.current) {
@@ -210,7 +219,8 @@ const SuiFlapGame = () => {
   
   // Initialize game
   const initGame = () => {
-    setBird({ x: 100, y: window.innerHeight / 2, velocity: 0 });
+    const { GAME_HEIGHT } = getGameDimensions();
+    setBird({ x: window.innerWidth * 0.125, y: GAME_HEIGHT / 2, velocity: 0 });
     setPipes([]);
     setScore(0);
     setLastPipeSpawn(0);
@@ -220,61 +230,52 @@ const SuiFlapGame = () => {
   const startGame = () => {
     initGame();
     setGameState('playing');
-    // Stop theme song when starting game
     if (themeSongRef.current) {
       themeSongRef.current.pause();
+    }
+  };
+
+  const mintSlap = async () => {
+    if (!currentAccount) {
+      alert('Please connect your wallet first.');
+      return;
+    }
+
+    console.log('Attempting to mint SLAP token...');
+
+    try {
+      const args = {
+        recipient: currentAccount.address,
+        score: scores,
+        amount: scores * 100,
+      };
+
+      await rewardPlayer(args);
+
+      console.log('Reward transaction sent successfully!');
+      setGameState("menu");
+    } catch (error) {
+      console.error("Minting failed:", error);
     }
   };
   
   // Jump function
   const jump = useCallback(() => {
     if (gameState === 'playing') {
+      const { JUMP_FORCE } = getGameDimensions();
       setBird(prev => ({ ...prev, velocity: JUMP_FORCE }));
-      // Play jump sound
       playSound(jumpSfxRef);
     }
   }, [gameState, isSoundEnabled]);
   
-  // Mock token minting function (placeholder for actual implementation)
+  // Mock token minting function
   const mintToken = async () => {
     if (!currentAccount) return;
     
     try {
-      // Play coin sound for earning token
       playSound(coinSfxRef);
-      
-      // This is a placeholder for token minting
-      // You would implement actual SUI Move module for token minting here
-      // Example transaction structure:
-      /*
-      const tx = new Transaction();
-      
-      tx.moveCall({
-        target: `${PACKAGE_ID}::game_token::mint_reward`,
-        arguments: [
-          tx.pure.address(currentAccount.address),
-          tx.pure.u64(1) // amount of tokens to mint
-        ]
-      });
-      
-      signAndExecute(
-        { transaction: tx },
-        {
-          onSuccess: (result) => {
-            console.log('Token minted successfully:', result);
-            setTokensEarned(prev => prev + 1);
-          },
-          onError: (error) => {
-            console.error('Error minting token:', error);
-          }
-        }
-      );
-      */
-      
-      // For demo purposes, just increment local counter
       setTokensEarned(prev => prev + 1);
       console.log('Token earned for passing pipe!');
-      
     } catch (error) {
       console.error('Error with token reward:', error);
     }
@@ -282,6 +283,7 @@ const SuiFlapGame = () => {
   
   // Collision detection function
   const checkCollision = (birdRect, pipes) => {
+    const { PIPE_WIDTH } = getGameDimensions();
     for (const pipe of pipes) {
       const topPipeRect = {
         x: pipe.x,
@@ -294,7 +296,7 @@ const SuiFlapGame = () => {
         x: pipe.x,
         y: pipe.bottomY,
         width: PIPE_WIDTH,
-        height: window.innerHeight - pipe.bottomY - 64 // Account for ground
+        height: window.innerHeight - pipe.bottomY - 64
       };
       
       if (
@@ -317,18 +319,18 @@ const SuiFlapGame = () => {
   useEffect(() => {
     if (gameState !== 'playing') return;
     
+    const { GRAVITY, PIPE_SPEED, PIPE_WIDTH, PIPE_GAP, BIRD_SIZE } = getGameDimensions();
+    
     const gameLoop = () => {
       setBird(prev => {
         const newVelocity = prev.velocity + GRAVITY;
         const newY = prev.y + newVelocity;
         
-        // Check bounds
-        if (newY < 0 || newY > window.innerHeight - BIRD_SIZE - 64) { // Account for ground height
+        if (newY < 0 || newY > window.innerHeight - BIRD_SIZE - 64) {
           setGameState('gameOver');
-          // Play fail sound
           playSound(failSfxRef);
-          if (score > highScore) {
-            setHighScore(score);
+          if (scores > highScore) {
+            setHighScore(scores);
           }
           return prev;
         }
@@ -342,13 +344,12 @@ const SuiFlapGame = () => {
           x: pipe.x - PIPE_SPEED
         })).filter(pipe => pipe.x > -PIPE_WIDTH);
         
-        // Check for scoring and token minting
         newPipes.forEach(pipe => {
           if (!pipe.scored && pipe.x + PIPE_WIDTH < bird.x) {
             pipe.scored = true;
             setScore(s => s + 1);
             if (currentAccount) {
-              mintToken(); // Mint token for passing pipe
+              mintToken();
             }
           }
         });
@@ -356,9 +357,8 @@ const SuiFlapGame = () => {
         return newPipes;
       });
       
-      // Spawn new pipes
       setLastPipeSpawn(prev => {
-        if (Date.now() - prev > 2000) { // Spawn every 2 seconds
+        if (Date.now() - prev > 2000) {
           const screenHeight = window.innerHeight;
           const groundHeight = 64;
           const availableHeight = screenHeight - groundHeight;
@@ -378,19 +378,20 @@ const SuiFlapGame = () => {
       });
     };
     // @ts-ignore
-    gameLoopRef.current = setInterval(gameLoop, 1000/60); // 60 FPS
+    gameLoopRef.current = setInterval(gameLoop, 1000/60);
     
     return () => {
       if (gameLoopRef.current) {
         clearInterval(gameLoopRef.current);
       }
     };
-  }, [gameState, bird.x, score, highScore, currentAccount, isSoundEnabled]);
+  }, [gameState, bird.x, scores, highScore, currentAccount, isSoundEnabled]);
   
   // Collision detection effect
   useEffect(() => {
     if (gameState !== 'playing') return;
     
+    const { BIRD_SIZE } = getGameDimensions();
     const birdRect = {
       x: bird.x,
       y: bird.y,
@@ -400,13 +401,12 @@ const SuiFlapGame = () => {
     
     if (checkCollision(birdRect, pipes)) {
       setGameState('gameOver');
-      // Play fail sound
       playSound(failSfxRef);
-      if (score > highScore) {
-        setHighScore(score);
+      if (scores > highScore) {
+        setHighScore(scores);
       }
     }
-  }, [bird, pipes, gameState, score, highScore, isSoundEnabled]);
+  }, [bird, pipes, gameState, scores, highScore, isSoundEnabled]);
   
   // Keyboard controls
   useEffect(() => {
@@ -424,19 +424,19 @@ const SuiFlapGame = () => {
     window.addEventListener('keydown', handleKeyPress);
     return () => window.removeEventListener('keydown', handleKeyPress);
   }, [gameState, jump]);
+  
   const canvasHandlers = {
     onClick: jump,
-    onTouchStart: jump, // ✅ Mobile tap support
+    onTouchStart: jump,
   };
+  
   if (gameState === 'menu') {
     return (
       <div className="min-h-screen flex items-center justify-center relative overflow-hidden">
-        {/* Animated Game Background */}
         <div 
           className="absolute inset-0 bg-gradient-to-b from-sky-300 to-green-300"
           style={{ width: '100vw', height: '100vh' }}
         >
-          {/* Clouds Background */}
           <div className="absolute inset-0 pointer-events-none">
             <div className="absolute top-10 left-20 w-16 h-8 bg-white rounded-full opacity-70 animate-pulse"></div>
             <div className="absolute top-20 right-32 w-20 h-10 bg-white rounded-full opacity-60 animate-pulse"></div>
@@ -446,72 +446,65 @@ const SuiFlapGame = () => {
             <div className="absolute top-80 left-3/4 w-10 h-5 bg-white rounded-full opacity-70 animate-pulse"></div>
           </div>
           
-          {/* Animated Menu Pipes */}
           {menuPipes.map((pipe, index) => (
             <div key={`menu-pipe-${index}`} className="absolute" style={{ zIndex: 1 }}>
-              {/* Top Pipe */}
               <div
                 className="absolute bg-green-600 border-4 border-green-700 shadow-lg opacity-40"
                 style={{
                   left: pipe.x,
                   top: 0,
-                  width: PIPE_WIDTH,
+                  width: getGameDimensions().PIPE_WIDTH,
                   height: pipe.topHeight,
                   borderRadius: '0 0 8px 8px'
                 }}
               />
-              {/* Bottom Pipe */}
               <div
                 className="absolute bg-green-600 border-4 border-green-700 shadow-lg opacity-40"
                 style={{
                   left: pipe.x,
                   top: pipe.bottomY,
-                  width: PIPE_WIDTH,
-                  height: window.innerHeight - pipe.bottomY - 64, // Subtract ground height (64px)
+                  width: getGameDimensions().PIPE_WIDTH,
+                  height: window.innerHeight - pipe.bottomY - 64,
                   borderRadius: '8px 8px 0 0'
                 }}
               />
             </div>
           ))}
           
-          {/* Ground */}
           <div className="absolute bottom-0 w-full h-16 bg-gradient-to-t from-yellow-700 to-yellow-500 border-t-4 border-yellow-800"></div>
         </div>
         
-        {/* Menu Content */}
         <div className="bg-slate-300 flex flex-col gap-3 backdrop-blur-sm rounded-lg shadow-2xl p-8 max-w-md w-full mx-4 relative z-10">
           <div>
-          <div className='flex flex-col items-center mb-4'>
-          <img src="/suiflap_logo_2.png" alt="suiflap" width={50} height={50}/>
-          <h1 className="text-4xl font-bold text-center mb-2 text-sky-600">SuiFlap</h1>
-          </div>
-          <p className="text-center text-gray-600 mb-6">Flap your SUI memes!</p>
+            <div className='flex flex-col items-center mb-4'>
+              <img src="/suiflap_logo_2.png" alt="suiflap" width={50} height={50}/>
+              <h1 className="text-4xl font-bold text-center mb-2 text-sky-600">SuiFlap</h1>
+            </div>
+            <p className="text-center text-gray-600 mb-6">Flap your SUI memes!</p>
           </div>
           
-          {/* Connect Button and Sound Toggle */}
           <div className="flex gap-2 mb-4">
             <div className="flex-1">
               <ConnectButton className="w-full" />
             </div>
             <div className='flex gap-2 flex-row items-center justify-center'>
-            <div>
-              <p className="text-black bg-white p-2 rounded-xl">0 SLAP</p>
-            </div>
-            <button
-              onClick={toggleSound}
-              className={`px-4 py-2 rounded-lg border-2 transition-all hover:scale-105 ${
-                isSoundEnabled 
-                  ? 'bg-green-50 border-green-300 text-green-700 hover:bg-green-100' 
-                  : 'bg-red-50 border-red-300 text-red-700 hover:bg-red-100'
-              }`}
-              title={isSoundEnabled ? 'Sound On' : 'Sound Off'}
-            >
-              {isSoundEnabled ? <Volume2 size={20} /> : <VolumeX size={20} />}
-            </button>
+              <div>
+                <p className="text-black bg-white p-2 rounded-xl">🪙{balance} SLAP</p>
+              </div>
+              <button
+                onClick={toggleSound}
+                className={`px-4 py-2 rounded-lg border-2 transition-all hover:scale-105 ${
+                  isSoundEnabled 
+                    ? 'bg-green-50 border-green-300 text-green-700 hover:bg-green-100' 
+                    : 'bg-red-50 border-red-300 text-red-700 hover:bg-red-100'
+                }`}
+                title={isSoundEnabled ? 'Sound On' : 'Sound Off'}
+              >
+                {isSoundEnabled ? <Volume2 size={20} /> : <VolumeX size={20} />}
+              </button>
             </div>
           </div>
           
-          {/* Wallet Status */}
           <div className="mb-6 text-center">
             {currentAccount ? (
               <div className="bg-green-50 border border-green-200 rounded-lg p-3">
@@ -534,7 +527,6 @@ const SuiFlapGame = () => {
             )}
           </div>
           
-          {/* Character Selection */}
           <h3 className="text-lg font-semibold mb-4 text-center text-black">Choose Your Character</h3>
           <div className="grid grid-cols-2 gap-3 mb-6">
             {CHARACTERS.map(char => (
@@ -553,31 +545,18 @@ const SuiFlapGame = () => {
             ))}
           </div>
           <div className='flex gap-2'>
-
-          <button
-            onClick={startGame}
-            className="w-full bg-sky-500 hover:bg-sky-600 text-white font-semibold py-3 rounded-lg transition-colors transform hover:scale-105 cursor-pointer"
-          >
-            🚀 Start Game
-          </button>
-          <button
-            onClick={startGame}
-            className="w-full bg-sky-500 hover:bg-sky-600 text-white font-semibold py-3 rounded-lg transition-colors transform hover:scale-105 cursor-pointer"
-          >
-            🪙 Mint $SLAP
-          </button>
+            <button
+              onClick={startGame}
+              className="w-full bg-sky-500 hover:bg-sky-600 text-white font-semibold py-3 rounded-lg transition-colors transform hover:scale-105 cursor-pointer"
+            >
+              🚀 Start Game
+            </button>
           </div>
           
-          {(highScore > 0 || tokensEarned > 0) && (
-            <div className="mt-4 text-center space-y-1">
-              {highScore > 0 && (
-                <p className="text-gray-600">🏆 High Score: {highScore}</p>
-              )}
-              {tokensEarned > 0 && (
-                <p className="text-green-600">🪙 Total Tokens: {tokensEarned}</p>
-              )}
-            </div>
-          )}
+          <div className="mt-4 text-center space-y-1">
+            <p className="text-gray-600">🏆 High Score: 125</p>
+            <p className="text-green-600">🪙 Total Tokens Earned: {balance} SLAP</p>
+          </div>
           
           <div className="mt-4 text-xs text-gray-500 text-center">
             Press SPACE or click to jump • Avoid the pipes!
@@ -590,13 +569,12 @@ const SuiFlapGame = () => {
   return (
     <div
       className="fixed inset-0 bg-gradient-to-b from-sky-300 to-green-300 overflow-hidden"
-      style={{ height: 'calc(var(--vh, 1vh) * 100)' }} // ✅ Full mobile height
+      style={{ height: 'calc(var(--vh, 1vh) * 100)' }}
     >
       <div
         className="relative w-full h-full cursor-pointer select-none"
-        {...canvasHandlers} // ✅ Touch + click
+        {...canvasHandlers}
       >
-        {/* Clouds Background */}
         <div className="absolute inset-0 pointer-events-none">
           <div className="absolute top-10 left-20 w-16 h-8 bg-white rounded-full opacity-70 animate-pulse"></div>
           <div className="absolute top-20 right-32 w-20 h-10 bg-white rounded-full opacity-60 animate-pulse"></div>
@@ -606,14 +584,13 @@ const SuiFlapGame = () => {
           <div className="absolute top-80 left-3/4 w-10 h-5 bg-white rounded-full opacity-70 animate-pulse"></div>
         </div>
         
-        {/* Bird */}
         <div
           className={`absolute transition-all duration-75 ${selectedCharacter.color} rounded-full flex items-center justify-center text-xl shadow-lg border-2 border-white`}
           style={{
             left: bird.x,
             top: bird.y,
-            width: BIRD_SIZE,
-            height: BIRD_SIZE,
+            width: getGameDimensions().BIRD_SIZE,
+            height: getGameDimensions().BIRD_SIZE,
             transform: `rotate(${Math.min(Math.max(bird.velocity * 3, -30), 45)}deg)`,
             zIndex: 10
           }}
@@ -621,27 +598,24 @@ const SuiFlapGame = () => {
           {selectedCharacter.emoji}
         </div>
         
-        {/* Pipes */}
         {pipes.map((pipe, index) => (
           <div key={index}>
-            {/* Top Pipe */}
             <div
               className="absolute bg-green-600 border-4 border-green-700 shadow-lg"
               style={{
                 left: pipe.x,
                 top: 0,
-                width: PIPE_WIDTH,
+                width: getGameDimensions().PIPE_WIDTH,
                 height: pipe.topHeight,
                 borderRadius: '0 0 8px 8px'
               }}
             />
-            {/* Bottom Pipe */}
             <div
               className="absolute bg-green-600 border-4 border-green-700 shadow-lg"
               style={{
                 left: pipe.x,
                 top: pipe.bottomY,
-                width: PIPE_WIDTH,
+                width: getGameDimensions().PIPE_WIDTH,
                 height: window.innerHeight - pipe.bottomY - 64,
                 borderRadius: '8px 8px 0 0'
               }}
@@ -649,74 +623,78 @@ const SuiFlapGame = () => {
           </div>
         ))}
         
-        {/* Ground */}
         <div className="absolute bottom-0 w-full h-16 bg-gradient-to-t from-yellow-700 to-yellow-500 border-t-4 border-yellow-800"></div>
       </div>
         
-        {/* UI Overlay */}
-        <div className="absolute top-4 left-4 text-white z-20">
-          <div className="bg-black bg-opacity-70 rounded-lg p-3 backdrop-blur-sm">
-            <div className="text-2xl font-bold">Score: {score}</div>
-            {currentAccount && (
-              <div className="text-sm flex items-center gap-1">
-                <span>Tokens: {tokensEarned}</span>
-                <span className="text-yellow-400">🪙</span>
-              </div>
-            )}
+      <div className="absolute top-4 left-4 text-white z-20">
+        <div className="bg-black bg-opacity-70 rounded-lg p-3 backdrop-blur-sm">
+          <div className="text-2xl font-bold">Score: {scores}</div>
+          {currentAccount && (
+            <div className="text-sm flex items-center gap-1">
+              <span>Tokens: {tokensEarned}</span>
+              <span className="text-yellow-400">🪙</span>
+            </div>
+          )}
+        </div>
+      </div>
+      
+      <div className="absolute top-4 right-4 z-20">
+        <div className="bg-black bg-opacity-70 rounded-lg p-2 backdrop-blur-sm">
+          <div className="flex items-center gap-2 text-white">
+            <span className="text-lg">{selectedCharacter.emoji}</span>
+            <span className="text-sm font-medium">{selectedCharacter.name}</span>
           </div>
         </div>
-        
-        {/* Character indicator */}
-        <div className="absolute top-4 right-4 z-20">
-          <div className="bg-black bg-opacity-70 rounded-lg p-2 backdrop-blur-sm">
-            <div className="flex items-center gap-2 text-white">
-              <span className="text-lg">{selectedCharacter.emoji}</span>
-              <span className="text-sm font-medium">{selectedCharacter.name}</span>
+      </div>
+      
+      {gameState === 'gameOver' && (
+        <div className="absolute inset-0 bg-black bg-opacity-75 flex items-center justify-center z-30">
+          <div className="bg-white rounded-lg p-8 text-center max-w-sm mx-4 shadow-2xl flex flex-col gap-5">
+            <div className="text-6xl mb-4">💥</div>
+            <h2 className="text-3xl font-bold mb-4 text-red-600">Game Over!</h2>
+            <div className="space-y-2 mb-6">
+              <p className="text-lg text-black">Final Score: <span className="font-bold text-sky-600">{scores}</span></p>
+              <p className="text-lg text-black">High Score: <span className="font-bold text-green-600">{Math.max(scores, highScore)}</span></p>
+              {currentAccount && tokensEarned > 0 && (
+                <p className="text-md text-green-600 bg-green-50 rounded-lg p-2">
+                  🪙 Total Tokens Earned: {tokensEarned}
+                </p>
+              )}
+            </div>
+            <div className="space-y-3 flex flex-col gap-2">
+              {scores > 0 ? (
+                <button
+                  onClick={mintSlap}
+                  className="w-60 bg-sky-500 hover:bg-sky-600 text-white font-semibold py-3 rounded-lg transition-colors transform hover:scale-105 cursor-pointer"
+                >
+                  🪙 Mint $SLAP
+                </button>
+              ) : (
+                <button
+                  onClick={() => setGameState("menu")}
+                  className="w-60 bg-sky-500 hover:bg-sky-600 text-white font-semibold py-3 rounded-lg transition-colors transform hover:scale-105 cursor-pointer"
+                >
+                  🏡 Back to Menu
+                </button>
+              )}
+              <button
+                onClick={startGame}
+                className="w-full bg-slate-500 hover:bg-slate-600 text-white font-semibold py-3 px-6 rounded-lg transition-colors transform hover:scale-105 cursor-pointer"
+              >
+                🔄 Play Again
+              </button>
             </div>
           </div>
         </div>
-        
-        {/* Game Over Screen */}
-        {gameState === 'gameOver' && (
-          <div className="absolute inset-0 bg-black bg-opacity-75 flex items-center justify-center z-30">
-            <div className="bg-white rounded-lg p-8 text-center max-w-sm mx-4 shadow-2xl">
-              <div className="text-6xl mb-4">💥</div>
-              <h2 className="text-3xl font-bold mb-4 text-red-600">Game Over!</h2>
-              <div className="space-y-2 mb-6">
-                <p className="text-lg text-black">Final Score: <span className="font-bold text-sky-600">{score}</span></p>
-                <p className="text-lg text-black">High Score: <span className="font-bold text-green-600">{Math.max(score, highScore)}</span></p>
-                {currentAccount && tokensEarned > 0 && (
-                  <p className="text-md text-green-600 bg-green-50 rounded-lg p-2">
-                    🪙 Total Tokens Earned: {tokensEarned}
-                  </p>
-                )}
-              </div>
-              <div className="space-y-3">
-                <button
-                  onClick={startGame}
-                  className="w-full bg-sky-500 hover:bg-sky-600 text-white font-semibold py-3 px-6 rounded-lg transition-colors transform hover:scale-105"
-                >
-                  🔄 Play Again
-                </button>
-                <button
-                  onClick={() => setGameState('menu')}
-                  className="w-full bg-gray-500 hover:bg-gray-600 text-white font-semibold py-2 px-6 rounded-lg transition-colors"
-                >
-                  🏠 Back to Menu
-                </button>
-              </div>
-            </div>
+      )}
+      
+      {gameState === 'playing' && (
+        <div className="absolute bottom-4 right-4 z-20">
+          <div className="bg-black bg-opacity-70 rounded-lg p-2 text-white text-sm backdrop-blur-sm">
+            Press SPACE or click to jump
           </div>
-        )}
-        
-        {/* Instructions */}
-        {gameState === 'playing' && (
-          <div className="absolute bottom-4 right-4 z-20">
-            <div className="bg-black bg-opacity-70 rounded-lg p-2 text-white text-sm backdrop-blur-sm">
-              Press SPACE or click to jump
-            </div>
-          </div>
-        )}
+        </div>
+      )}
     </div>
   );
 };
